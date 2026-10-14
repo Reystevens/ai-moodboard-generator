@@ -14,43 +14,48 @@
         .image-preview img { width: 120px; height: 120px; object-fit: cover; border-radius: 6px; border: 2px solid #e0e0e0; }
         .room-checkboxes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 15px; }
         .room-checkboxes label { background: #f8f9fa; padding: 10px; border-radius: 6px; cursor: pointer; border: 1px solid #dee2e6; }
-        .moodboard-page { padding: 20px; background: white; margin-bottom: 30px; border: 1px solid #eee; } /* Acts as the PDF page */
+        .moodboard-page { padding: 25px; background: white; margin-bottom: 30px; border: 1px solid #eee; border-radius: 8px; }
         .moodboard-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 15px; }
         .moodboard-img-container { position: relative; }
-        .moodboard-img-container img { width: 100%; height: 200px; object-fit: cover; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .moodboard-img-container img { width: 100%; height: 220px; object-fit: cover; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .btn-swap { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.75); color: white; border: none; padding: 6px 10px; cursor: pointer; border-radius: 4px; font-size: 12px; transition: background 0.2s; }
         .btn-swap:hover { background: rgba(0,0,0,0.9); }
+        input[type="text"], input[type="password"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; margin-top: 5px; box-sizing: border-box; }
         button.primary { background: #2c3e50; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-size: 15px; margin-top: 20px; font-weight: bold; }
         button.primary:hover { background: #1a252f; }
         button.success { background: #27ae60; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-size: 15px; margin-top: 20px; font-weight: bold; }
         button.success:hover { background: #219653; }
-        .loading { font-style: italic; color: #666; }
+        .loading { font-style: italic; color: #2980b9; font-weight: 500; }
+        .vibe-badge { background: #e8f4f8; border-left: 4px solid #2980b9; padding: 12px; margin-bottom: 20px; border-radius: 4px; }
     </style>
 </head>
 <body>
 
     <h1>Concept Moodboard Generator</h1>
 
-    <!-- Step 1 & 2: Setup -->
+    <!-- Setup Form -->
     <div id="step-setup" class="step-container">
-        <h2>1. Upload Vibe References (5-10 images)</h2>
-        <p style="font-size: 14px; color: #666;">Upload client inspiration photos so the AI can extract the design language.</p>
+        <h2>0. API Key Configuration</h2>
+        <label for="gemini-key">Enter your Gemini API Key:</label>
+        <input type="password" id="gemini-key" placeholder="AQ.Ab...">
+
+        <h2 style="margin-top: 25px;">1. Upload Vibe References (5-10 images)</h2>
         <input type="file" id="image-upload" multiple accept="image/*">
         <div class="image-preview" id="upload-preview"></div>
 
-        <h2 style="margin-top: 30px;">2. Select Spaces to Generate</h2>
+        <h2 style="margin-top: 25px;">2. Select Spaces to Generate</h2>
         <div class="room-checkboxes">
-            <label><input type="checkbox" value="Foyer" class="room-cb"> Foyer</label>
+            <label><input type="checkbox" value="Foyer" class="room-cb"> Foyer / Entrance</label>
             <label><input type="checkbox" value="Living Room" class="room-cb"> Living Room</label>
-            <label><input type="checkbox" value="Kitchen" class="room-cb"> Kitchen</label>
+            <label><input type="checkbox" value="Kitchen" class="room-cb"> Kitchen / Dining</label>
             <label><input type="checkbox" value="Master Bedroom" class="room-cb"> Master Bedroom</label>
             <label><input type="checkbox" value="Bathroom" class="room-cb"> Bathroom</label>
         </div>
 
-        <button class="primary" onclick="processWorkflow()">Analyze & Generate Moodboards</button>
+        <button class="primary" onclick="processWorkflow()">Analyze References & Generate Moodboards</button>
     </div>
 
-    <!-- Step 3, 4, 5 & 6: Preview -->
+    <!-- Preview & Export -->
     <div id="step-preview" class="step-container hidden">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h2>Moodboard Preview</h2>
@@ -58,12 +63,14 @@
         </div>
         <p id="ai-status" class="loading">Initializing AI vision analysis...</p>
         
-        <!-- The area that will be converted to PDF -->
+        <div id="vibe-summary" class="vibe-badge hidden"></div>
+
+        <!-- Printable area for PDF -->
         <div id="pdf-content-area"></div>
     </div>
 
     <script>
-        // --- 1. Handle File Uploads ---
+        // Image upload preview handler
         document.getElementById('image-upload').addEventListener('change', function(e) {
             const preview = document.getElementById('upload-preview');
             preview.innerHTML = '';
@@ -74,13 +81,28 @@
             });
         });
 
-        // --- 2. Main Workflow Controller ---
+        // Convert image File object to Base64 string for Gemini API
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = error => reject(error);
+            });
+        }
+
+        // Main Workflow Execution
         async function processWorkflow() {
+            const apiKey = document.getElementById('gemini-key').value.trim();
             const selectedRooms = Array.from(document.querySelectorAll('.room-cb:checked')).map(cb => cb.value);
-            const uploadedFiles = document.getElementById('image-upload').files;
+            const uploadedFiles = Array.from(document.getElementById('image-upload').files);
             
+            if(!apiKey) {
+                alert("Please enter your Gemini API Key.");
+                return;
+            }
             if(uploadedFiles.length === 0) {
-                alert("Please upload at least one reference image.");
+                alert("Please upload reference images.");
                 return;
             }
             if(selectedRooms.length === 0) {
@@ -92,73 +114,90 @@
             document.getElementById('step-preview').classList.remove('hidden');
             const statusText = document.getElementById('ai-status');
             
-            // Step A: Extract Design Language (Placeholder for Gemini API)
-            statusText.innerText = "Step 1/3: AI is extracting design language, materials, and color palette from your images...";
-            const designVibe = await analyzeImagesWithGemini(uploadedFiles);
-            
-            // Step B: Generate Search Prompts based on vibe
-            statusText.innerText = `Step 2/3: Generating search queries for ${designVibe}...`;
-            
-            // Step C: Fetch Images and Render
-            statusText.innerText = "Step 3/3: Sourcing high-quality images...";
-            await renderMoodboards(selectedRooms, designVibe);
-            
-            statusText.innerText = `Design Concept: ${designVibe}`;
-            statusText.style.color = "#27ae60";
-            statusText.style.fontWeight = "bold";
-            document.getElementById('btn-export').classList.remove('hidden');
+            try {
+                // Step 1: Gemini Vision Analysis
+                statusText.innerText = "Analyzing reference photos with Gemini AI...";
+                const extractedVibe = await analyzeImagesWithGemini(apiKey, uploadedFiles);
+                
+                const vibeSummary = document.getElementById('vibe-summary');
+                vibeSummary.innerHTML = `<strong>Detected Style & Mood:</strong> ${extractedVibe}`;
+                vibeSummary.classList.remove('hidden');
+
+                // Step 2: Fetch Design Photos matching the extracted vibe
+                statusText.innerText = "Sourcing matching architectural photos...";
+                await renderMoodboards(selectedRooms, extractedVibe);
+                
+                statusText.innerText = "Moodboard generation complete!";
+                statusText.style.color = "#27ae60";
+                document.getElementById('btn-export').classList.remove('hidden');
+            } catch (err) {
+                alert("Error during processing: " + err.message);
+                statusText.innerText = "Failed to process request. Check your API key or connection.";
+                statusText.style.color = "#c0392b";
+            }
         }
 
-        // --- 3. AI API Placeholders ---
-        // In the next phase, we will replace these with real fetch() requests to Gemini and Google APIs.
-        async function analyzeImagesWithGemini(files) {
-            return new Promise(resolve => {
-                setTimeout(() => {
-                    // This will eventually be the text output from Gemini Vision API
-                    resolve("Minimalist contemporary style with warm wood tones and marble accents");
-                }, 2000);
+        // Gemini 1.5 Flash Vision API Call
+        async function analyzeImagesWithGemini(apiKey, files) {
+            const sampleFiles = files.slice(0, 3);
+            const imageParts = await Promise.all(sampleFiles.map(async file => ({
+                inline_data: {
+                    mime_type: file.type,
+                    data: await fileToBase64(file)
+                }
+            })));
+
+            const promptText = "Analyze these interior design reference images. Summarize the aesthetic in 1 concise sentence focusing on style (e.g., minimalist contemporary, Scandinavian), material palette (e.g., fluted wood, marble tiles, parquet flooring), lighting, and color tones. Keep it short for a search query.";
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [{ text: promptText }, ...imageParts]
+                    }]
+                })
             });
+
+            const data = await response.json();
+            if (data.error) throw new Error(data.error.message);
+            
+            return data.candidates[0].content.parts[0].text.trim();
         }
 
-        async function fetchImagesFromGoogle(room, vibe, count = 3) {
-            return new Promise(resolve => {
-                setTimeout(() => {
-                    // This will eventually call the Google Custom Search API
-                    const images = [];
-                    for(let i=1; i<=count; i++) {
-                        const randomId = Math.floor(Math.random() * 1000);
-                        // Using high-quality unsplash placeholders for now to simulate real photos
-                        images.push(`https://picsum.photos/seed/${room}${randomId}/600/400`);
-                    }
-                    resolve(images);
-                }, 1500);
-            });
+        // Source High Quality Interior Photos (Using Pollinations AI for realistic mockups)
+        async function fetchDesignImages(query, count = 3) {
+            const urls = [];
+            for(let i = 0; i < count; i++) {
+                const randomSeed = Math.floor(Math.random() * 100000);
+                const searchQuery = encodeURIComponent(`highly detailed interior design photography of a ${query}, architectural digest style`);
+                urls.push(`https://image.pollinations.ai/prompt/${searchQuery}?seed=${randomSeed}&width=800&height=600&nologo=true`);
+            }
+            return urls;
         }
 
-        // --- 4. Render the UI ---
+        // Render Moodboard to DOM
         async function renderMoodboards(rooms, vibe) {
             const container = document.getElementById('pdf-content-area');
             container.innerHTML = '';
 
             for (const room of rooms) {
-                const images = await fetchImagesFromGoogle(room, vibe, 3);
+                const searchQuery = `${vibe} ${room}`;
+                const images = await fetchDesignImages(searchQuery, 3);
                 
-                // Create a page wrapper for the PDF formatting
                 const page = document.createElement('div');
                 page.className = 'moodboard-page';
-                page.innerHTML = `
-                    <h3 style="border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px;">Concept: ${room}</h3>
-                `;
+                page.innerHTML = `<h3 style="border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 15px;">Space Concept: ${room}</h3>`;
                 
                 const grid = document.createElement('div');
                 grid.className = 'moodboard-grid';
                 
-                images.forEach((imgUrl, index) => {
+                images.forEach((imgUrl) => {
                     const imgBox = document.createElement('div');
                     imgBox.className = 'moodboard-img-container';
                     imgBox.innerHTML = `
-                        <img src="${imgUrl}" alt="${room} inspiration">
-                        <button class="btn-swap" onclick="swapImage(this, '${room}', '${vibe}')" data-html2canvas-ignore>Change Photo</button>
+                        <img src="${imgUrl}" alt="${room} concept" crossorigin="anonymous">
+                        <button class="btn-swap" onclick="swapSingleImage(this, '${room}', '${vibe}')" data-html2canvas-ignore>Swap Photo</button>
                     `;
                     grid.appendChild(imgBox);
                 });
@@ -168,33 +207,33 @@
             }
         }
 
-        // --- 5. Handle Image Swapping ---
-        async function swapImage(buttonElement, room, vibe) {
+        // Swap out individual photo
+        async function swapSingleImage(buttonElement, room, vibe) {
             buttonElement.innerText = "Loading...";
-            buttonElement.style.background = "#e67e22";
+            const randomSeed = Math.floor(Math.random() * 100000);
+            const searchQuery = encodeURIComponent(`highly detailed interior design photography of a ${vibe} ${room}, architectural digest style`);
+            const newUrl = `https://image.pollinations.ai/prompt/${searchQuery}?seed=${randomSeed}&width=800&height=600&nologo=true`;
             
-            const newImages = await fetchImagesFromGoogle(room, vibe, 1);
             const imgElement = buttonElement.previousElementSibling;
             
-            imgElement.src = newImages[0];
-            
-            buttonElement.innerText = "Change Photo";
-            buttonElement.style.background = "rgba(0,0,0,0.75)";
+            // Wait for image to load before changing button text back
+            imgElement.onload = () => {
+                buttonElement.innerText = "Swap Photo";
+            };
+            imgElement.src = newUrl;
         }
 
-        // --- 6. Handle PDF Export ---
+        // Export to PDF
         function exportToPDF() {
             const element = document.getElementById('pdf-content-area');
             const opt = {
                 margin:       10,
                 filename:     'Design_Concept_Moodboard.pdf',
                 image:        { type: 'jpeg', quality: 0.98 },
-                html2canvas:  { scale: 2, useCORS: true }, // useCORS allows external images to load in the PDF
+                html2canvas:  { scale: 2, useCORS: true, allowTaint: true },
                 jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
             };
 
-            // Notice the data-html2canvas-ignore tag on the "Change Photo" buttons above? 
-            // That tells this library to hide the buttons in the final PDF!
             html2pdf().set(opt).from(element).save();
         }
     </script>
